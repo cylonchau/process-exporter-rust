@@ -1,0 +1,25 @@
+Source: process-exporter-rust
+Section: utils
+Priority: optional
+Maintainer: cylonchau <cylonchau@outlook.com>
+Build-Depends: debhelper-compat (= 13),
+               cargo,
+               rustc (>= 1.90),
+               clang,
+               llvm,
+               libelf-dev,
+               linux-headers-generic | linux-headers-amd64
+Standards-Version: 4.6.0
+Homepage: https://github.com/yourusername/dynamic-process-exporter
+Rules-Requires-Root: no
+
+Package: process-exporter
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, systemd
+Description: Process Exporter with eBPF Network Monitoring
+ A high-performance Prometheus exporter for dynamic process monitoring
+ with eBPF-based network traffic tracking.
+ .
+ Features:
+  - Dynamic process registration via REST API
+  - CPU, memory, disk I/O, and network traffic statistics of processes

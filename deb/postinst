@@ -1,0 +1,53 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    configure)
+        # Create log directory with proper permissions
+        mkdir -p /var/log/process-exporter
+        chown root:root /var/log/process-exporter
+        chmod 755 /var/log/process-exporter
+
+        # Ensure config directory permissions
+        chown -R root:root /etc/process-exporter
+        chmod 755 /etc/process-exporter
+        chmod 644 /etc/process-exporter/process-exporter.env
+
+        # Reload systemd
+        if [ -d /run/systemd/system ]; then
+            systemctl --system daemon-reload >/dev/null || true
+        fi
+
+        # Make install-deps.sh executable
+        chmod +x /usr/share/process-exporter/install-deps.sh
+
+        echo "╔═══════════════════════════════════════════════════════════╗"
+        echo "║  Process Exporter installed successfully!                 ║"
+        echo "╚═══════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "⚠️  IMPORTANT: Install runtime dependencies first!"
+        echo ""
+        echo "Run the following command to install required dependencies:"
+        echo "  sudo /usr/share/process-exporter/install-deps.sh --runtime"
+        echo ""
+        echo "Configuration file:"
+        echo "  /etc/process-exporter/process-exporter.env"
+        echo ""
+        echo "Edit configuration if needed:"
+        echo "  sudo nano /etc/process-exporter/process-exporter.env"
+        echo ""
+        echo "After installing dependencies, start the service:"
+        echo "  sudo systemctl enable --now process-exporter"
+        echo ""
+        echo "View logs:"
+        echo "  sudo journalctl -u process-exporter -f"
+        echo ""
+        echo "Access metrics:"
+        echo "  curl http://localhost:9999/metrics"
+        echo ""
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

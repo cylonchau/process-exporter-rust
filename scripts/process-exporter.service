@@ -1,0 +1,36 @@
+[Unit]
+Description=Process Exporter with eBPF Network Monitoring
+Documentation=https://github.com/yourusername/process-exporter
+After=network.target
+
+[Service]
+Type=simple
+User=root
+
+# Load environment variables from configuration file
+EnvironmentFile=/etc/process-exporter/process-exporter.env
+
+# Start the service with environment variables
+ExecStart=/usr/bin/process-exporter
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log
+
+# Resource limits
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=process-exporter
+
+[Install]
+WantedBy=multi-user.target

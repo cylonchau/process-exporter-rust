@@ -1,0 +1,5 @@
+target/release/process-exporter usr/bin
+scripts/process-exporter.service lib/systemd/system
+scripts/process-exporter.env etc/process-exporter
+scripts/install-deps.sh usr/share/process-exporter
+README.md usr/share/doc/process-exporter

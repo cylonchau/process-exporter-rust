@@ -1,0 +1,57 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export CARGO_HOME = $(CURDIR)/deb/cargo
+export RUSTUP_HOME = $(CURDIR)/deb/rustup
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	cargo clean || true
+	cd ebpf && cargo clean || true
+
+override_dh_auto_configure:
+	# Install dependencies using our script
+	chmod +x scripts/install-deps.sh
+	./scripts/install-deps.sh --build
+
+override_dh_auto_build:
+	# Source Rust environment
+	. $(HOME)/.cargo/env && \
+	cd ebpf && \
+	cargo +nightly build --release --target=bpfel-unknown-none -Z build-std=core && \
+	cd .. && \
+	cargo build --release
+
+override_dh_auto_test:
+	# Skip tests for now
+	true
+
+override_dh_auto_install:
+	# Create directories
+	install -d $(CURDIR)/deb/process-exporter/etc/process-exporter
+	install -d $(CURDIR)/deb/process-exporter/var/log/process-exporter
+
+	# Install binary
+	install -D -m 755 target/release/process-exporter \
+		$(CURDIR)/deb/process-exporter/usr/bin/process-exporter
+
+	# Install systemd service
+	install -D -m 644 scripts/process-exporter.service \
+		$(CURDIR)/deb/process-exporter/lib/systemd/system/process-exporter.service
+
+	# Install environment configuration
+	install -D -m 644 scripts/process-exporter.env \
+		$(CURDIR)/deb/process-exporter/etc/process-exporter/process-exporter.env
+
+	# Install dependency script
+	install -D -m 755 scripts/install-deps.sh \
+		$(CURDIR)/deb/process-exporter/usr/share/process-exporter/install-deps.sh
+
+override_dh_installsystemd:
+	dh_installsystemd --name=process-exporter --no-start
+
+override_dh_strip:
+	# Don't strip the binary (already stripped in release build)
+	true
