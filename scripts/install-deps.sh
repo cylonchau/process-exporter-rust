@@ -31,15 +31,59 @@ detect_os() {
     echo -e "${GREEN}Detected OS: ${OS} ${OS_VERSION}${NC}"
 }
 
-# Install for Debian/Ubuntu
-install_debian() {
-    echo -e "${YELLOW}Installing dependencies for Debian/Ubuntu...${NC}"
+# Install runtime dependencies for Debian/Ubuntu
+install_runtime_debian() {
+    echo -e "${YELLOW}Installing runtime dependencies for Debian/Ubuntu...${NC}"
+
+    apt-get update
+    apt-get install -y \
+        libelf1 \
+        ca-certificates
+
+    # Install kernel headers if available
+    apt-get install -y linux-headers-$(uname -r) 2>/dev/null || \
+        apt-get install -y linux-headers-generic 2>/dev/null || \
+        echo -e "${YELLOW}Warning: Could not install kernel headers (eBPF may not work)${NC}"
+
+    echo -e "${GREEN}✓ Runtime dependencies installed${NC}"
+}
+
+# Install runtime dependencies for Rocky Linux/RHEL/Fedora
+install_runtime_redhat() {
+    echo -e "${YELLOW}Installing runtime dependencies for Rocky Linux/RHEL/Fedora...${NC}"
+
+    # Determine package manager
+    if command -v dnf &> /dev/null; then
+        PKG_MGR="dnf"
+    elif command -v yum &> /dev/null; then
+        PKG_MGR="yum"
+    else
+        echo -e "${RED}Error: No package manager found${NC}"
+        exit 1
+    fi
+
+    $PKG_MGR update -y
+    $PKG_MGR install -y \
+        elfutils-libelf \
+        ca-certificates
+
+    # Install kernel headers and devel packages
+    $PKG_MGR install -y kernel-devel-$(uname -r) kernel-headers-$(uname -r) 2>/dev/null || \
+        $PKG_MGR install -y kernel-devel kernel-headers 2>/dev/null || \
+        echo -e "${YELLOW}Warning: Could not install kernel headers (eBPF may not work)${NC}"
+
+    echo -e "${GREEN}✓ Runtime dependencies installed${NC}"
+}
+
+# Install build dependencies for Debian/Ubuntu
+install_build_debian() {
+    echo -e "${YELLOW}Installing build dependencies for Debian/Ubuntu...${NC}"
 
     # Update package list
     apt-get update
 
     # Install build dependencies
-    apt-get install --allowerasing -y \
+    apt-get install -y \
         curl \
         build-essential \
         pkg-config \
@@ -59,9 +103,9 @@ install_debian() {
     echo -e "${GREEN}✓ Debian/Ubuntu dependencies installed${NC}"
 }
 
-# Install for Rocky Linux/RHEL/Fedora
-install_redhat() {
-    echo -e "${YELLOW}Installing dependencies for Rocky Linux/RHEL/Fedora...${NC}"
+# Install build dependencies for Rocky Linux/RHEL/Fedora
+install_build_redhat() {
+    echo -e "${YELLOW}Installing build dependencies for Rocky Linux/RHEL/Fedora...${NC}"
 
     # Determine package manager
     if command -v dnf &> /dev/null; then
@@ -84,9 +128,15 @@ install_redhat() {
     # Update package list
     $PKG_MGR update -y
 
+    # Check if curl-minimal is installed and remove it if necessary
+    if rpm -q curl-minimal &> /dev/null; then
+        echo -e "${YELLOW}Replacing curl-minimal with full curl package...${NC}"
+        $PKG_MGR install -y curl --allowerasing
+    fi
+
     # Install build dependencies
-    $PKG_MGR install -y --allowerasing \
-        curl \
+    # NOTE: 'curl' is removed from the list if it causes conflicts
+    $PKG_MGR install -y \
         gcc \
         gcc-c++ \
         make \
@@ -97,6 +147,11 @@ install_redhat() {
         elfutils-libelf-devel \
         git \
         ca-certificates
+
+    # Try to install curl if not present (after removing curl-minimal)
+    if ! command -v curl &> /dev/null; then
+        $PKG_MGR install --allowerasing -y curl || echo -e "${YELLOW}Warning: Could not install curl${NC}"
+    fi
 
     # Install kernel headers and devel packages
     $PKG_MGR install -y kernel-devel-$(uname -r) kernel-headers-$(uname -r) || \
@@ -113,7 +168,16 @@ install_rust() {
         RUST_INSTALLED=true
     else
         echo -e "${YELLOW}Installing Rust...${NC}"
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+
+        # Check if curl is available, if not try wget
+        if command -v curl &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        elif command -v wget &> /dev/null; then
+            wget -qO- https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        else
+            echo -e "${RED}Error: Neither curl nor wget is available${NC}"
+            exit 1
+        fi
 
         # Source cargo env for current session
         if [ -f "$HOME/.cargo/env" ]; then
@@ -169,7 +233,7 @@ print_instructions() {
     echo -e "${GREEN}=== Installation Complete ===${NC}"
     echo ""
 
-    if [ "$RUST_INSTALLED" = false ]; then
+    if [ "$RUST_INSTALLED" = false ] && [ "$RUNTIME_ONLY" != "1" ]; then
         echo -e "${YELLOW}IMPORTANT: Run the following command to configure your current shell:${NC}"
         echo -e "  ${GREEN}source \$HOME/.cargo/env${NC}"
         echo ""
@@ -177,16 +241,60 @@ print_instructions() {
         echo ""
     fi
 
-    echo -e "${GREEN}You can now build the project with:${NC}"
-    echo -e "  ${GREEN}make build${NC}"
-    echo ""
+    if [ "$RUNTIME_ONLY" = "1" ]; then
+        echo -e "${GREEN}Runtime dependencies installed. The service should now work properly.${NC}"
+        echo ""
+        echo -e "Start the service with:${NC}"
+        echo -e "  ${GREEN}sudo systemctl start process-exporter${NC}"
+        echo ""
+    else
+        echo -e "${GREEN}You can now build the project with:${NC}"
+        echo -e "  ${GREEN}make build${NC}"
+        echo ""
+    fi
+}
+
+# Show usage
+show_usage() {
+    cat <<EOF
+Usage: $0 [OPTIONS]
+
+Options:
+  --runtime        Install only runtime dependencies (for end users)
+  --build          Install build dependencies (for developers)
+  --skip-system    Skip system package installation
+  --rust-only      Only install Rust and related tools
+  -h, --help       Show this help message
+
+Examples:
+  # For end users (after installing the package)
+  sudo $0 --runtime
+
+  # For developers (building from source)
+  sudo $0 --build
+
+  # In CI environment
+  sudo $0 --build
+EOF
 }
 
 # Main installation flow
 main() {
+    # Default to build mode
+    MODE="build"
+
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
+            --runtime)
+                MODE="runtime"
+                RUNTIME_ONLY=1
+                shift
+                ;;
+            --build)
+                MODE="build"
+                shift
+                ;;
             --skip-system)
                 SKIP_SYSTEM_DEPS=1
                 shift
@@ -196,16 +304,12 @@ main() {
                 shift
                 ;;
             -h|--help)
-                echo "Usage: $0 [OPTIONS]"
-                echo ""
-                echo "Options:"
-                echo "  --skip-system    Skip system package installation (useful for CI)"
-                echo "  --rust-only      Only install Rust and related tools"
-                echo "  -h, --help       Show this help message"
+                show_usage
                 exit 0
                 ;;
             *)
                 echo -e "${RED}Unknown option: $1${NC}"
+                show_usage
                 exit 1
                 ;;
         esac
@@ -220,10 +324,18 @@ main() {
 
         case $OS in
             ubuntu|debian|linuxmint)
-                install_debian
+                if [ "$MODE" = "runtime" ]; then
+                    install_runtime_debian
+                else
+                    install_build_debian
+                fi
                 ;;
             rocky|rhel|centos|fedora|almalinux)
-                install_redhat
+                if [ "$MODE" = "runtime" ]; then
+                    install_runtime_redhat
+                else
+                    install_build_redhat
+                fi
                 ;;
             *)
                 echo -e "${RED}Error: Unsupported operating system: $OS${NC}"
@@ -235,11 +347,11 @@ main() {
         echo -e "${YELLOW}Skipping system package installation${NC}"
     fi
 
-    # Install Rust (can be done as regular user)
-    install_rust
-
-    # Install Rust nightly and eBPF tools
-    install_rust_nightly
+    # Install Rust only for build mode
+    if [ "$MODE" = "build" ] || [ "$RUST_ONLY" = "1" ]; then
+        install_rust
+        install_rust_nightly
+    fi
 
     # Print instructions
     print_instructions
