@@ -114,13 +114,13 @@ fi
 %files
 %license LICENSE
 %doc README.md
-%{_bindir}/%{name}
-%{_unitdir}/%{name}.service
-%dir %{_sysconfdir}/%{name}
-%config(noreplace) %{_sysconfdir}/%{name}/%{name}.env
-%dir %{_datadir}/%{name}
-%{_datadir}/%{name}/install-deps.sh
-%dir %{_localstatedir}/log/%{name}
+/usr/bin/%{name}
+/usr/lib/systemd/system/%{name}.service
+%dir /etc/%{name}
+%config(noreplace) /etc/%{name}/%{name}.env
+%dir /usr/share/%{name}
+/usr/share/%{name}/install-deps.sh
+%dir /var/log/%{name}
 
 %changelog
 * Mon Oct 13 2025 cylonchau <cylonchau@outlook.com> - 0.1.1-1
