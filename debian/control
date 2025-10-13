@@ -2,15 +2,9 @@ Source: process-exporter-rust
 Section: utils
 Priority: optional
 Maintainer: cylonchau <cylonchau@outlook.com>
-Build-Depends: debhelper-compat (= 13),
-               cargo,
-               rustc (>= 1.90),
-               clang,
-               llvm,
-               libelf-dev,
-               linux-headers-generic | linux-headers-amd64
+Build-Depends: debhelper-compat (= 13)
 Standards-Version: 4.6.0
-Homepage: https://github.com/yourusername/dynamic-process-exporter
+Homepage: https://github.com/cylonchau/process-exporter-rust
 Rules-Requires-Root: no
 
 Package: process-exporter

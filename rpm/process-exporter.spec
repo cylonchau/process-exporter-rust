@@ -29,6 +29,8 @@ with eBPF-based network traffic tracking.
 Features:
 - Dynamic process registration via REST API
 - eBPF-based network monitoring for per-process network statistics
+- Prometheus-compatible metrics export
+- Low overhead process tracking
 - Support for CPU, memory, disk I/O, and network monitoring
 
 Note: eBPF functionality requires kernel headers. Run the following
@@ -45,37 +47,40 @@ cp %{SOURCE5} .
 
 %install
 # Create directories
-install -d %{buildroot}%{_sysconfdir}/%{name}
-install -d %{buildroot}%{_localstatedir}/log/%{name}
+install -d %{buildroot}/etc/%{name}
+install -d %{buildroot}/var/log/%{name}
+install -d %{buildroot}/usr/bin
+install -d %{buildroot}/usr/lib/systemd/system
+install -d %{buildroot}/usr/share/%{name}
 
 # Install binary
-install -D -m 755 %{SOURCE0} %{buildroot}%{_bindir}/%{name}
+install -m 755 %{SOURCE0} %{buildroot}/usr/bin/%{name}
 
 # Install systemd service
-install -D -m 644 %{SOURCE1} %{buildroot}%{_unitdir}/%{name}.service
+install -m 644 %{SOURCE1} %{buildroot}/usr/lib/systemd/system/%{name}.service
 
 # Install environment configuration
-install -D -m 644 %{SOURCE2} %{buildroot}%{_sysconfdir}/%{name}/%{name}.env
+install -m 644 %{SOURCE2} %{buildroot}/etc/%{name}/%{name}.env
 
 # Install dependency script
-install -D -m 755 %{SOURCE3} %{buildroot}%{_datadir}/%{name}/install-deps.sh
+install -m 755 %{SOURCE3} %{buildroot}/usr/share/%{name}/install-deps.sh
 
 %post
 %systemd_post %{name}.service
 
 # Create log directory
-mkdir -p %{_localstatedir}/log/%{name}
-chown root:root %{_localstatedir}/log/%{name}
-chmod 755 %{_localstatedir}/log/%{name}
+mkdir -p /var/log/%{name}
+chown root:root /var/log/%{name}
+chmod 755 /var/log/%{name}
 
 # Set config file permissions
-chown root:root %{_sysconfdir}/%{name}/%{name}.env
-chmod 644 %{_sysconfdir}/%{name}/%{name}.env
+chown root:root /etc/%{name}/%{name}.env
+chmod 644 /etc/%{name}/%{name}.env
 
 cat <<EOF
 
 ╔═══════════════════════════════════════════════════════════╗
-║  Process Exporter installed successfully!                 ║
+║  Process Exporter installed successfully!                ║
 ╚═══════════════════════════════════════════════════════════╝
 
 ⚠️  IMPORTANT: Install runtime dependencies first!
@@ -84,10 +89,10 @@ Run the following command to install required dependencies:
   sudo /usr/share/%{name}/install-deps.sh --runtime
 
 Configuration file:
-  %{_sysconfdir}/%{name}/%{name}.env
+  /etc/%{name}/%{name}.env
 
 Edit configuration if needed:
-  sudo vi %{_sysconfdir}/%{name}/%{name}.env
+  sudo vi /etc/%{name}/%{name}.env
 
 After installing dependencies, start the service:
   sudo systemctl enable --now %{name}
@@ -108,19 +113,19 @@ EOF
 
 # Clean up on complete removal
 if [ $1 -eq 0 ]; then
-    rm -rf %{_localstatedir}/log/%{name}
+    rm -rf /var/log/%{name}
 fi
 
 %files
 %license LICENSE
 %doc README.md
-%{_bindir}/%{name}
-%{_unitdir}/%{name}.service
-%dir %{_sysconfdir}/%{name}
-%config(noreplace) %{_sysconfdir}/%{name}/%{name}.env
-%dir %{_datadir}/%{name}
-%{_datadir}/%{name}/install-deps.sh
-%dir %{_localstatedir}/log/%{name}
+/usr/bin/%{name}
+/usr/lib/systemd/system/%{name}.service
+%dir /etc/%{name}
+%config(noreplace) /etc/%{name}/%{name}.env
+%dir /usr/share/%{name}
+/usr/share/%{name}/install-deps.sh
+%dir /var/log/%{name}
 
 %changelog
 * Mon Oct 13 2025 cylonchau <cylonchau@outlook.com> - 0.1.1-1

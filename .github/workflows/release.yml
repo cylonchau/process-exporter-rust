@@ -2,19 +2,28 @@ name: Build and Release
 
 on:
   push:
-    branches: [ main ]
     tags:
       - 'v*'
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+
 jobs:
-  build-binary:
-    name: Build Binary
+  build-deb:
+    name: Build DEB packages
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os:
+          - { name: ubuntu, version: "22.04" }
+          - { name: ubuntu, version: "24.04" }
+          - { name: debian, version: "11" }
+          - { name: debian, version: "12" }
+          - { name: debian, version: "13" }
     steps:
       - uses: actions/checkout@v4
 
@@ -25,10 +34,21 @@ jobs:
           override: true
           components: rust-src
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm libelf-dev gcc-multilib
+          sudo apt-get install -y \
+            debhelper \
+            devscripts \
+            dpkg-dev \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            clang \
+            llvm \
+            libelf-dev \
+            gcc-multilib \
+            linux-headers-generic
 
       - name: Install bpf-linker
         run: cargo install bpf-linker
@@ -41,56 +61,22 @@ jobs:
       - name: Build application
         run: cargo build --release
 
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: process-exporter-binary
-          path: target/release/process-exporter
-
-  build-deb:
-    name: Build DEB packages
-    needs: build-binary
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        os:
-          - { name: ubuntu, version: "22.04", codename: jammy }
-          - { name: ubuntu, version: "24.04", codename: noble }
-          - { name: debian, version: "11", codename: bullseye }
-          - { name: debian, version: "12", codename: bookworm }
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download binary
-        uses: actions/download-artifact@v4
-        with:
-          name: process-exporter-binary
-          path: target/release/
-
-      - name: Make binary executable
-        run: chmod +x target/release/process-exporter
-
-      - name: Install Rust and build dependencies
-        run: |
-          chmod +x scripts/install-deps.sh
-          sudo ./scripts/install-deps.sh --build
-
-      - name: Install DEB build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y debhelper devscripts dpkg-dev
-
       - name: Build DEB package
-        run: |
-          . $HOME/.cargo/env
-          dpkg-buildpackage -us -uc -b
+        run: dpkg-buildpackage -us -uc -b
 
       - name: Move packages
         run: |
           mkdir -p dist/deb
-          mv ../*.deb dist/deb/ || true
-          mv ../*.buildinfo dist/deb/ || true
-          mv ../*.changes dist/deb/ || true
+          # Rename DEB file to include OS info
+          for deb in ../*.deb; do
+            if [ -f "$deb" ]; then
+              # Create new name: process-exporter_0.1.1-1_amd64-ubuntu22.04.deb
+              newname="process-exporter_0.1.1-1_amd64-${{ matrix.os.name }}${{ matrix.os.version }}.deb"
+              mv "$deb" "dist/deb/$newname"
+            fi
+          done
+          mv ../*.buildinfo dist/deb/ 2>/dev/null || true
+          mv ../*.changes dist/deb/ 2>/dev/null || true
 
       - name: Upload DEB packages
         uses: actions/upload-artifact@v4
@@ -100,7 +86,6 @@ jobs:
 
   build-rpm:
     name: Build RPM packages
-    needs: build-binary
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -111,22 +96,36 @@ jobs:
     steps:
       - name: Install build tools
         run: |
-          dnf install -y git rpm-build rpmdevtools make gcc
+          dnf install -y git rpm-build rpmdevtools make gcc \
+            clang llvm elfutils-libelf-devel kernel-devel
 
       - uses: actions/checkout@v4
 
-      - name: Download binary
-        uses: actions/download-artifact@v4
-        with:
-          name: process-exporter-binary
-          path: target/release/
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source $HOME/.cargo/env
+          rustup toolchain install nightly
+          rustup component add rust-src --toolchain nightly
 
-      - name: Make binary executable
-        run: chmod +x target/release/process-exporter
+      - name: Install bpf-linker
+        run: |
+          source $HOME/.cargo/env
+          cargo install bpf-linker
+
+      - name: Build eBPF
+        run: |
+          source $HOME/.cargo/env
+          cd ebpf
+          cargo +nightly build --release --target=bpfel-unknown-none -Z build-std=core
+
+      - name: Build application
+        run: |
+          source $HOME/.cargo/env
+          cargo build --release
 
       - name: Setup rpmbuild directories
-        run: |
-          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+        run: mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
       - name: Copy source files
         run: |
@@ -135,8 +134,6 @@ jobs:
           cp scripts/process-exporter.env ~/rpmbuild/SOURCES/
           cp scripts/install-deps.sh ~/rpmbuild/SOURCES/
           cp README.md ~/rpmbuild/SOURCES/
-          
-          # Create LICENSE if not exists
           if [ ! -f LICENSE ]; then
             echo "MIT License" > ~/rpmbuild/SOURCES/LICENSE
           else
@@ -149,8 +146,7 @@ jobs:
       - name: Build RPM
         run: |
           VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
-          rpmbuild --define "_version $VERSION" \
-            -bb ~/rpmbuild/SPECS/process-exporter.spec
+          rpmbuild --define "_version $VERSION" -bb ~/rpmbuild/SPECS/process-exporter.spec
 
       - name: Copy RPM packages
         run: |
