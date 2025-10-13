@@ -2,324 +2,186 @@ name: Build and Release
 
 on:
   push:
+    branches: [ main ]
     tags:
       - 'v*'
-  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-debian:
+  build-binary:
+    name: Build Binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          components: rust-src
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libelf-dev gcc-multilib
+
+      - name: Install bpf-linker
+        run: cargo install bpf-linker
+
+      - name: Build eBPF
+        run: |
+          cd ebpf
+          cargo +nightly build --release --target=bpfel-unknown-none -Z build-std=core
+
+      - name: Build application
+        run: cargo build --release
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: process-exporter-binary
+          path: target/release/process-exporter
+
+  build-deb:
     name: Build DEB packages
+    needs: build-binary
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - os: debian
-            version: '11'
-            codename: bullseye
-          - os: debian
-            version: '12'
-            codename: bookworm
-          - os: ubuntu
-            version: '22.04'
-            codename: jammy
-          - os: ubuntu
-            version: '24.04'
-            codename: noble
-
-    container:
-      image: ${{ matrix.os }}:${{ matrix.version }}
-
+        os:
+          - { name: ubuntu, version: "22.04", codename: jammy }
+          - { name: ubuntu, version: "24.04", codename: noble }
+          - { name: debian, version: "11", codename: bullseye }
+          - { name: debian, version: "12", codename: bookworm }
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install build tools
-        run: |
-          apt-get update
-          apt-get install -y dpkg-dev debhelper build-essential sudo
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: process-exporter-binary
+          path: target/release/
 
-      - name: Install dependencies using install-deps.sh
+      - name: Make binary executable
+        run: chmod +x target/release/process-exporter
+
+      - name: Install Rust and build dependencies
         run: |
           chmod +x scripts/install-deps.sh
-          ./scripts/install-deps.sh
-        env:
-          CI: true
+          sudo ./scripts/install-deps.sh --build
+
+      - name: Install DEB build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debhelper devscripts dpkg-dev
 
       - name: Build DEB package
         run: |
           . $HOME/.cargo/env
-          
-          # Create dist directory
-          mkdir -p dist/deb
-          
-          # Build package
           dpkg-buildpackage -us -uc -b
-          
-          # Move to dist
+
+      - name: Move packages
+        run: |
+          mkdir -p dist/deb
           mv ../*.deb dist/deb/ || true
           mv ../*.buildinfo dist/deb/ || true
           mv ../*.changes dist/deb/ || true
 
-      - name: Rename package with OS info
-        run: |
-          . $HOME/.cargo/env
-          cd dist/deb
-          
-          VERSION=$(grep '^version' ../../Cargo.toml | head -n1 | cut -d'"' -f2)
-          ARCH=$(dpkg --print-architecture)
-          
-          # Find and rename the .deb file
-          for deb in *.deb; do
-            if [ -f "$deb" ]; then
-              NEW_NAME="process-exporter_${VERSION}_${{ matrix.os }}-${{ matrix.codename }}_${ARCH}.deb"
-              mv "$deb" "$NEW_NAME"
-              echo "Created: $NEW_NAME"
-          
-              # Generate SHA256
-              sha256sum "$NEW_NAME" > "${NEW_NAME}.sha256"
-            fi
-          done
-          
-          ls -lh
-
-      - name: Upload artifact
+      - name: Upload DEB packages
         uses: actions/upload-artifact@v4
         with:
-          name: debian-${{ matrix.os }}-${{ matrix.codename }}
-          path: dist/debian/*.debian
+          name: deb-${{ matrix.os.name }}-${{ matrix.os.version }}
+          path: dist/deb/*.deb
 
   build-rpm:
     name: Build RPM packages
+    needs: build-binary
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - os: rockylinux
-            version: '9'
-            name: el9
-
+        os:
+          - { name: rockylinux, version: "9", dist: el9 }
     container:
-      image: ${{ matrix.os }}:${{ matrix.version }}
-
+      image: ${{ matrix.os.name }}:${{ matrix.os.version }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Install build tools
         run: |
-          dnf install -y rpm-build rpmdevtools systemd-rpm-macros sudo
+          dnf install -y git rpm-build rpmdevtools make gcc
 
-      - name: Install dependencies using install-deps.sh
-        run: |
-          chmod +x scripts/install-deps.sh
-          ./scripts/install-deps.sh
-        env:
-          CI: true
+      - uses: actions/checkout@v4
 
-      - name: Build the binary
-        run: |
-          . $HOME/.cargo/env
-          cd ebpf
-          cargo +nightly build --release --target=bpfel-unknown-none -Z build-std=core
-          cd ..
-          cargo build --release
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: process-exporter-binary
+          path: target/release/
 
-      - name: Build RPM package
+      - name: Make binary executable
+        run: chmod +x target/release/process-exporter
+
+      - name: Setup rpmbuild directories
         run: |
-          . $HOME/.cargo/env
-          
-          VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
-          
-          # Create rpmbuild directories
           mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          
-          # Copy source files to SOURCES
-          echo "Copying files to ~/rpmbuild/SOURCES/..."
+
+      - name: Copy source files
+        run: |
           cp target/release/process-exporter ~/rpmbuild/SOURCES/
           cp scripts/process-exporter.service ~/rpmbuild/SOURCES/
           cp scripts/process-exporter.env ~/rpmbuild/SOURCES/
           cp scripts/install-deps.sh ~/rpmbuild/SOURCES/
           cp README.md ~/rpmbuild/SOURCES/
           
-          if [ -f LICENSE ]; then
-            cp LICENSE ~/rpmbuild/SOURCES/
-          else
+          # Create LICENSE if not exists
+          if [ ! -f LICENSE ]; then
             echo "MIT License" > ~/rpmbuild/SOURCES/LICENSE
+          else
+            cp LICENSE ~/rpmbuild/SOURCES/
           fi
-          
-          # Copy spec file to SPECS
-          cp rpm/process-exporter.spec ~/rpmbuild/SPECS/
-          
-          # List files in SOURCES
-          echo "Files in SOURCES:"
-          ls -lh ~/rpmbuild/SOURCES/
-          
-          # Build RPM
-          echo "Building RPM..."
-          rpmbuild --define "_version ${VERSION}" \
-                   -bb ~/rpmbuild/SPECS/process-exporter.spec
-          
-          # Create dist directory and copy RPM
+
+      - name: Copy spec file
+        run: cp rpm/process-exporter.spec ~/rpmbuild/SPECS/
+
+      - name: Build RPM
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+          rpmbuild --define "_version $VERSION" \
+            -bb ~/rpmbuild/SPECS/process-exporter.spec
+
+      - name: Copy RPM packages
+        run: |
           mkdir -p dist/rpm
           cp ~/rpmbuild/RPMS/*/*.rpm dist/rpm/
-          
-          # Rename with OS info
-          cd dist/rpm
-          for rpm in *.rpm; do
-            if [ -f "$rpm" ]; then
-              # Add OS info to name
-              NEW_NAME=$(echo "$rpm" | sed "s/\(process-exporter-.*-1\)\./\1.${{ matrix.name }}./")
-              if [ "$rpm" != "$NEW_NAME" ]; then
-                mv "$rpm" "$NEW_NAME"
-                echo "Renamed: $rpm -> $NEW_NAME"
-              fi
-          
-              # Generate SHA256
-              sha256sum "$NEW_NAME" > "${NEW_NAME}.sha256"
-            fi
-          done
-          
-          ls -lh
 
-      - name: Upload artifact
+      - name: Upload RPM packages
         uses: actions/upload-artifact@v4
         with:
-          name: rpm-${{ matrix.os }}-${{ matrix.name }}
+          name: rpm-${{ matrix.os.name }}-${{ matrix.os.version }}
           path: dist/rpm/*.rpm
 
   release:
     name: Create Release
-    needs: [build-debian, build-rpm]
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-deb, build-rpm]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-
-    permissions:
-      contents: write
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Prepare release files
-        run: |
-          mkdir -p release
-          
-          # Copy all packages
-          find artifacts -type f \( -name "*.deb" -o -name "*.rpm" \) -exec cp {} release/ \;
-          
-          # List all packages
-          echo "Packages to be released:"
-          ls -lh release/
-
-      - name: Generate checksums
-        run: |
-          cd release
-          
-          # Generate overall SHA256SUMS
-          sha256sum *.deb *.rpm > SHA256SUMS
-          
-          echo "SHA256 Checksums:"
-          cat SHA256SUMS
-
-      - name: Generate release notes
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          
-          cat > release_notes.md <<EOF
-          ## Process Exporter ${VERSION}
-          
-          ### 📦 Quick Installation
-          
-          #### Debian 11 (Bullseye)
-          \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/${VERSION}/process-exporter_*_debian-bullseye_amd64.deb
-          sudo dpkg -i process-exporter_*_debian-bullseye_amd64.deb
-          sudo /usr/share/process-exporter/install-deps.sh --runtime
-          sudo systemctl enable --now process-exporter
-          \`\`\`
-          
-          #### Debian 12 (Bookworm)
-          \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/${VERSION}/process-exporter_*_debian-bookworm_amd64.deb
-          sudo dpkg -i process-exporter_*_debian-bookworm_amd64.deb
-          sudo /usr/share/process-exporter/install-deps.sh --runtime
-          sudo systemctl enable --now process-exporter
-          \`\`\`
-          
-          #### Ubuntu 22.04 (Jammy)
-          \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/${VERSION}/process-exporter_*_ubuntu-jammy_amd64.deb
-          sudo dpkg -i process-exporter_*_ubuntu-jammy_amd64.deb
-          sudo /usr/share/process-exporter/install-deps.sh --runtime
-          sudo systemctl enable --now process-exporter
-          \`\`\`
-          
-          #### Ubuntu 24.04 (Noble)
-          \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/${VERSION}/process-exporter_*_ubuntu-noble_amd64.deb
-          sudo dpkg -i process-exporter_*_ubuntu-noble_amd64.deb
-          sudo /usr/share/process-exporter/install-deps.sh --runtime
-          sudo systemctl enable --now process-exporter
-          \`\`\`
-          
-          #### Rocky Linux 9
-          \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/${VERSION}/process-exporter-*-1.el9.x86_64.rpm
-          sudo dnf install -y process-exporter-*-1.el9.x86_64.rpm
-          sudo /usr/share/process-exporter/install-deps.sh --runtime
-          sudo systemctl enable --now process-exporter
-          \`\`\`
-          
-          ---
-          
-          ### ⚠️ POST-INSTALLATION REQUIRED
-          
-          After installing the package, you **MUST** run:
-          \`\`\`bash
-          sudo /usr/share/process-exporter/install-deps.sh --runtime
-          \`\`\`
-          
-          This installs kernel headers and runtime dependencies required for eBPF.
-          
-          ---
-          
-          ### 🔧 Configuration
-          
-          Edit \`/etc/process-exporter/process-exporter.env\` to customize:
-          - \`PORT\`: Server port (default: 9999)
-          - \`ADDRESS\`: Bind address (default: 0.0.0.0)
-          - \`RUST_LOG\`: Log level (default: info)
-          
-          ---
-          
-          ### ✨ Features
-          - Dynamic process registration via REST API
-          - eBPF-based per-process network monitoring
-          - CPU, memory, disk I/O metrics
-          - Prometheus-compatible export
-          
-          ### 🔐 Verify Downloads
-          
-          Check integrity with SHA256SUMS file:
-          \`\`\`bash
-          sha256sum -c SHA256SUMS
-          \`\`\`
-          EOF
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: release/*
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
+          files: |
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
