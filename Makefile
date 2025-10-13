@@ -119,7 +119,7 @@ clean: ## Clean build artifacts
 	@echo "$(YELLOW)Cleaning build artifacts...$(NC)"
 	cargo clean
 	cd ebpf && cargo clean
-	rm -rf deb/process-exporter deb/.debhelper deb/files deb/*.debhelper* deb/*.substvars
+	rm -rf debian/process-exporter debian/.debhelper debian/files debian/*.debhelper* debian/*.substvars
 	rm -rf $(HOME)/rpmbuild
 	rm -rf $(DIST_DIR)
 	rm -f ../*.deb ../*.buildinfo ../*.changes
