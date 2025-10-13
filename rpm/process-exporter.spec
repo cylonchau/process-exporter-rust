@@ -29,8 +29,6 @@ with eBPF-based network traffic tracking.
 Features:
 - Dynamic process registration via REST API
 - eBPF-based network monitoring for per-process network statistics
-- Prometheus-compatible metrics export
-- Low overhead process tracking
 - Support for CPU, memory, disk I/O, and network monitoring
 
 Note: eBPF functionality requires kernel headers. Run the following
@@ -38,7 +36,9 @@ command after installation to install required dependencies:
   sudo /usr/share/process-exporter/install-deps.sh --runtime
 
 %prep
-# No prep needed - using pre-built binary
+# Copy documentation to BUILD directory for %doc and %license macros
+cp %{SOURCE4} .
+cp %{SOURCE5} .
 
 %build
 # No build needed - using pre-built binary
@@ -60,10 +60,6 @@ install -D -m 644 %{SOURCE2} %{buildroot}%{_sysconfdir}/%{name}/%{name}.env
 # Install dependency script
 install -D -m 755 %{SOURCE3} %{buildroot}%{_datadir}/%{name}/install-deps.sh
 
-# Install documentation
-install -D -m 644 %{SOURCE4} %{buildroot}%{_docdir}/%{name}/README.md
-install -D -m 644 %{SOURCE5} %{buildroot}%{_docdir}/%{name}/LICENSE
-
 %post
 %systemd_post %{name}.service
 
@@ -79,7 +75,7 @@ chmod 644 %{_sysconfdir}/%{name}/%{name}.env
 cat <<EOF
 
 ╔═══════════════════════════════════════════════════════════╗
-║  Process Exporter installed successfully!                ║
+║  Process Exporter installed successfully!                 ║
 ╚═══════════════════════════════════════════════════════════╝
 
 ⚠️  IMPORTANT: Install runtime dependencies first!
@@ -124,9 +120,6 @@ fi
 %config(noreplace) %{_sysconfdir}/%{name}/%{name}.env
 %dir %{_datadir}/%{name}
 %{_datadir}/%{name}/install-deps.sh
-%dir %{_docdir}/%{name}
-%{_docdir}/%{name}/README.md
-%{_docdir}/%{name}/LICENSE
 %dir %{_localstatedir}/log/%{name}
 
 %changelog
