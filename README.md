@@ -1,6 +1,6 @@
 # RESTlized simple process-exporter
 
-A high-performance Prometheus exporter for process monitoring with eBPF-based network traffic tracking.
+A rust pratice project - Prometheus exporter for process monitoring with eBPF-based network traffic tracking.
 
 ## Features
 
