@@ -150,7 +150,7 @@ install_build_redhat() {
 
     # Try to install curl if not present (after removing curl-minimal)
     if ! command -v curl &> /dev/null; then
-        $PKG_MGR install --allowerasing -y curl || echo -e "${YELLOW}Warning: Could not install curl${NC}"
+        $PKG_MGR install -y curl || echo -e "${YELLOW}Warning: Could not install curl${NC}"
     fi
 
     # Install kernel headers and devel packages

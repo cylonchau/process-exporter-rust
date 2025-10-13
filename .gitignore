@@ -1,38 +1,12 @@
-# =========================================
-# Rust build/cache
-# =========================================
-# Ignore all target dirs in any sub-crate
-**/target/
-**/.cargo/
-**/.rustup/
-**/clippy.toml
-**/rustfmt.toml
+# Build outputs
+/dist/
 
-## manifest output
-**/dist/
-
-# IDE / Editor configs
-/.venv/
-/.env/
-/.idea/
-/.vscode/
-# Temporary / Environment
-.env
-.venv
-*.log
-*.tmp
-*.bak
-*.swp
-.DS_Store
-Thumbs.db
-
-
-# Debian build artifacts
+# deb build artifacts
 /debian/process-exporter/
 /debian/.debhelper/
 /debian/files
-/deb/*.debhelper*
-/deb/*.substvars
+/debian/*.debhelper*
+/debian/*.substvars
 
 # RPM build artifacts
 rpmbuild/
@@ -42,3 +16,25 @@ rpmbuild/
 ../*.rpm
 ../*.buildinfo
 ../*.changes
+
+# Rust build/cache
+# Ignore all target dirs in any sub-crate
+**/target/
+**/.cargo/
+**/.rustup/
+**/clippy.toml
+**/rustfmt.toml
+
+# IDE / Editor configs
+.vscode/
+.idea/
+
+# Temporary / Environment
+.env
+.venv
+*.log
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db

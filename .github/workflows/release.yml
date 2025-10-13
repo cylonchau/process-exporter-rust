@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-deb:
+  build-debian:
     name: Build DEB packages
     runs-on: ubuntu-latest
     strategy:
