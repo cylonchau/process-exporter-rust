@@ -2,11 +2,11 @@
 /dist/
 
 # deb build artifacts
-/deb/process-exporter/
-/deb/.debhelper/
-/deb/files
-/deb/*.debhelper*
-/deb/*.substvars
+/debian/process-exporter/
+/debian/.debhelper/
+/debian/files
+/debian/*.debhelper*
+/debian/*.substvars
 
 # RPM build artifacts
 rpmbuild/

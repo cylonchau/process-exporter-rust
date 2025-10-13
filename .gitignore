@@ -28,9 +28,9 @@ Thumbs.db
 
 
 # Debian build artifacts
-/deb/process-exporter/
-/deb/.debhelper/
-/deb/files
+/debian/process-exporter/
+/debian/.debhelper/
+/debian/files
 /deb/*.debhelper*
 /deb/*.substvars
 

@@ -39,7 +39,7 @@ install_debian() {
     apt-get update
 
     # Install build dependencies
-    apt-get install -y \
+    apt-get install --allowerasing -y \
         curl \
         build-essential \
         pkg-config \
@@ -85,7 +85,7 @@ install_redhat() {
     $PKG_MGR update -y
 
     # Install build dependencies
-    $PKG_MGR install -y \
+    $PKG_MGR install -y --allowerasing \
         curl \
         gcc \
         gcc-c++ \
