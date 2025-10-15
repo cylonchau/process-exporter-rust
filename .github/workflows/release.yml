@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build TEST
 
 on:
   push:
@@ -26,6 +26,26 @@ jobs:
           - { name: debian, version: "13" }
     steps:
       - uses: actions/checkout@v4
+
+      - name: Extract version from tag or use default
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Building version $VERSION from tag"
+          else
+            VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Building version $VERSION from Cargo.toml"
+          fi
+
+      - name: Update debian/changelog with version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/^process-exporter-rust (.*)/process-exporter-rust ($VERSION-1) unstable; urgency=medium/" debian/changelog
+          echo "Updated debian/changelog to version $VERSION-1"
+          head -n 5 debian/changelog
 
       - name: Install Rust nightly
         uses: actions-rs/toolchain@v1
@@ -145,8 +165,7 @@ jobs:
 
       - name: Build RPM
         run: |
-          VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
-          rpmbuild --define "_version $VERSION" -bb ~/rpmbuild/SPECS/process-exporter.spec
+          rpmbuild --define "_version ${{ steps.version.outputs.version }}" -bb ~/rpmbuild/SPECS/process-exporter.spec
 
       - name: Copy RPM packages
         run: |
