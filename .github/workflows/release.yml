@@ -114,6 +114,21 @@ jobs:
     container:
       image: ${{ matrix.os.name }}:${{ matrix.os.version }}
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag or use default
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Building version $VERSION from tag"
+          else
+            VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Building version $VERSION from Cargo.toml"
+          fi
+
       - name: Install build tools
         run: |
           dnf install -y git rpm-build rpmdevtools make gcc \
@@ -177,3 +192,26 @@ jobs:
         with:
           name: rpm-${{ matrix.os.name }}-${{ matrix.os.version }}
           path: dist/rpm/*.rpm
+
+  release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-deb, build-rpm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

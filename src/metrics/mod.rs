@@ -4,10 +4,11 @@ use prometheus::{
 };
 use lazy_static::lazy_static;
 use std::sync::Arc;
+use sysinfo::System;
 
 pub struct MetricsRegistry {
     registry: Registry,
-    
+
     // Gauge metrics
     pub process_up: GaugeVec,
     pub process_pid_info: GaugeVec,
@@ -18,7 +19,7 @@ pub struct MetricsRegistry {
     pub process_thread_count: GaugeVec,
     pub process_registered_timestamp: GaugeVec,
     pub process_last_check_timestamp: GaugeVec,
-    
+
     // Counter metrics
     pub process_disk_read_bytes: CounterVec,
     pub process_disk_written_bytes: CounterVec,
@@ -33,8 +34,8 @@ impl MetricsRegistry {
         let registry = Registry::new();
 
         // 定义通用的标签
-        let common_labels = &["name", "cmdline"];
-        
+        let common_labels = &["name", "cmdline","hostname"];
+
         // Gauge metrics
         let process_up = register_gauge_vec_with_registry!(
             Opts::new("process_up", "Process is running (1) or down (0)"),
@@ -44,7 +45,7 @@ impl MetricsRegistry {
 
         let process_pid_info = register_gauge_vec_with_registry!(
             Opts::new("process_pid_info", "Process PID information"),
-            &["name", "pid"],
+            &["name", "pid", "hostname"],
             registry
         ).unwrap();
 
@@ -104,25 +105,25 @@ impl MetricsRegistry {
         ).unwrap();
 
         let process_network_tx_bytes = register_counter_vec_with_registry!(
-            Opts::new("process_network_tx_bytes", "Network transmitted bytes (eBPF)"),
+            Opts::new("process_network_tx_bytes", "Network transmitted bytes"),
             common_labels,
             registry
         ).unwrap();
 
         let process_network_rx_bytes = register_counter_vec_with_registry!(
-            Opts::new("process_network_rx_bytes", "Network received bytes (eBPF)"),
+            Opts::new("process_network_rx_bytes", "Network received bytes"),
             common_labels,
             registry
         ).unwrap();
 
         let process_network_tx_packets = register_counter_vec_with_registry!(
-            Opts::new("process_network_tx_packets", "Network transmitted packets (eBPF)"),
+            Opts::new("process_network_tx_packets", "Network transmitted packets"),
             common_labels,
             registry
         ).unwrap();
 
         let process_network_rx_packets = register_counter_vec_with_registry!(
-            Opts::new("process_network_rx_packets", "Network received packets (eBPF)"),
+            Opts::new("process_network_rx_packets", "Network received packets"),
             common_labels,
             registry
         ).unwrap();
@@ -157,9 +158,11 @@ impl MetricsRegistry {
 
     pub fn reset_process_metrics(&self, name: &str, cmdline: &str) {
         // 重置所有该进程的 metrics
-        let labels = &[name, cmdline];
-        
+        let hostname = System::host_name().unwrap_or_else(|| "unknown".to_string());
+        let labels = &[name, cmdline, &hostname.clone()];
+
         // 删除旧的 metric 值
+        let _ = self.process_pid_info.remove_label_values(&[name, "0", &hostname.clone()]);
         let _ = self.process_up.remove_label_values(labels);
         let _ = self.process_cpu_usage.remove_label_values(labels);
         let _ = self.process_memory_bytes.remove_label_values(labels);

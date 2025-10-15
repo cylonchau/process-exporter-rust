@@ -1,5 +1,7 @@
 use actix_web::{web, HttpResponse, Responder};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::collections::HashMap;
+use sysinfo::System;
 
 use crate::services::{check_process_running, get_process_pid};
 use crate::state::AppState;
@@ -19,22 +21,29 @@ pub async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
     let pids_to_update: Vec<(String, Option<i32>, String)> = state.processes.iter()
         .map(|(name, status)| (name.clone(), status.pid, status.config.cmdline.clone()))
         .collect();
+    let hostname = System::host_name().unwrap_or_else(|| "unknown".to_string());
+
+    // 用于跟踪每个进程的旧 PID 和新 PID
+    let mut pid_changes: HashMap<String, (Option<i32>, Option<i32>)> = HashMap::new();
+
 
     // 更新每个进程的状态和统计
-    for (name, _old_pid, cmdline) in pids_to_update {
+    for (name, old_pid, cmdline) in pids_to_update {
         // 检查进程状态
         let is_running = check_process_running(&cmdline);
-        let pid = get_process_pid(&cmdline);
+        let new_pid = get_process_pid(&cmdline);
 
+        // 记录下 pid 变化
+        pid_changes.insert(name.clone(), (old_pid, new_pid));
         // 收集基础统计（CPU、内存等）- 异步操作
-        let stats = if let Some(p) = pid {
+        let stats = if let Some(p) = new_pid {
             let ebpf_loader_clone = ebpf_loader.clone();
             drop(state);  // 释放锁以便执行异步操作
-            
+
             // 创建临时的 stats_collector
             let temp_collector = crate::services::StatsCollector::new(ebpf_loader_clone);
             let collected = temp_collector.collect_stats(p).await;
-            
+
             state = data.lock().unwrap();  // 重新获取锁
             collected
         } else {
@@ -44,7 +53,7 @@ pub async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
         // 更新状态
         if let Some(status) = state.processes.get_mut(&name) {
             status.is_running = is_running;
-            status.pid = pid;
+            status.pid = new_pid;
             status.last_check = now;
 
             // 更新基础统计
@@ -58,13 +67,24 @@ pub async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
     for (_, status) in state.processes.iter() {
         let name = &status.config.name;
         let cmdline = &status.config.cmdline;
-        let labels = &[name.as_str(), cmdline.as_str()];
 
-        // PID info
-        if let Some(pid) = status.pid {
-            METRICS.process_pid_info
-                .with_label_values(&[name.as_str(), &pid.to_string()])
-                .set(1.0);
+        let labels = &[name.as_str(), cmdline.as_str(), &hostname.clone()];
+
+        // process_pid_info只保留最新的
+        if let Some((old_pid, new_pid)) = pid_changes.get(name) { {
+            if (old_pid != new_pid) {
+                if let Some(old) = old_pid {
+                    let _ = METRICS.process_pid_info
+                        .remove_label_values(&[name.as_str(), &old.to_string(), &hostname.clone()]);
+                    log::info!("Process information changed, removed old PID metric for '{}': {}", name, old);
+                }
+            }
+        }
+            if let Some(new) = new_pid {
+                METRICS.process_pid_info
+                    .with_label_values(&[name.as_str(), &new.to_string(), &hostname.clone()])
+                    .set(1.0);
+            }
         }
 
         // process_up
