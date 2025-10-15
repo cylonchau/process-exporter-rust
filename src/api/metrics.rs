@@ -35,6 +35,33 @@ pub async fn get_metrics(data: web::Data<AppState>) -> impl Responder {
 
         // 记录下 pid 变化
         pid_changes.insert(name.clone(), (old_pid, new_pid));
+
+        // 当进程监控变更时，更新ebpf白名单保证正常进程监听
+        if old_pid != new_pid {
+            let ebpf_loader_clone = ebpf_loader.clone();
+            drop(state);
+
+            // 移除旧 PID
+            if let Some(old) = old_pid {
+                if let Err(e) = ebpf_loader_clone.remove_pid_from_whitelist(old).await {
+                    log::warn!("Failed to remove old PID {} from eBPF whitelist: {}", old, e);
+                } else {
+                    log::debug!("✓ Removed old PID {} from eBPF whitelist for '{}'", old, name);
+                }
+            }
+
+            // 添加新 PID
+            if let Some(new) = new_pid {
+                if let Err(e) = ebpf_loader_clone.add_pid_to_whitelist(new).await {
+                    log::warn!("Failed to add new PID {} to eBPF whitelist: {}", new, e);
+                } else {
+                    log::debug!("✓ Added new PID {} to eBPF whitelist for '{}'", new, name);
+                }
+            }
+
+            state = data.lock().unwrap();
+        }
+
         // 收集基础统计（CPU、内存等）- 异步操作
         let stats = if let Some(p) = new_pid {
             let ebpf_loader_clone = ebpf_loader.clone();

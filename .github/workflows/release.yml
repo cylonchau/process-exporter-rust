@@ -91,7 +91,7 @@ jobs:
           for deb in ../*.deb; do
             if [ -f "$deb" ]; then
               # Create new name: process-exporter_0.1.1-1_amd64-ubuntu22.04.deb
-              newname="process-exporter_0.1.1-1_amd64-${{ matrix.os.name }}${{ matrix.os.version }}.deb"
+              newname="process-exporter_${{ steps.version.outputs.version }}_amd64-${{ matrix.os.name }}${{ matrix.os.version }}.deb"
               mv "$deb" "dist/deb/$newname"
             fi
           done
